@@ -1,0 +1,91 @@
+---
+title: "Machine Learning Class Project"
+output:
+  html_document: default
+  html_notebook: default
+---
+#Executive Summary
+To build the model, an examination of the data set showed that there was a significant number of columns with little to no data or with administrative data that the analyst felt would not add to the model (such as time stamp or subject).  After examining several models, the random forest methodology was deemed to have the best fit for the problem set.  
+
+Cross-validation was performed using the bootstrap method with the usage of "Accuracy" as the metric to be used to select the optimal model.
+
+In order to estimate the out of sample error rate, a portion of the training data was reserved and not used to build the final model.  Once the model had been trained, the predicted values from the model and the actual values from the validation set were compared and the % of incorrect answers calculated to be approximately 2%, which agrees well with 1.65% which R calculated to be the OOB estimate of error rate of the final model.
+
+#Project Background
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.  The goal of your project is to predict the manner in which they did the exercise. 
+
+#Loading the Training Data set and create a training and testing data set
+## Loading the data
+There are two sets of data. The first set was a set of training data and the second set was a set of testing data without known results.
+```{r echo=FALSE}
+require(caret)
+require(lubridate)
+LabRats<-read.csv("pml-training.csv", stringsAsFactors = FALSE)
+WhatRats<-read.csv("pml-testing.csv", stringsAsFactors = FALSE)
+```
+
+##Creating a training and validation set of the data
+Once the data was extracted, the training data set was further divided into a training set and a validation set.
+```{r}
+set.seed(1234)
+inTrain<-createDataPartition(y=LabRats$classe, p=0.7, list=FALSE)
+RatTrain<-LabRats[inTrain,]
+RatValidate<-LabRats[-inTrain,]
+```
+
+##Subset for values of interest
+In order to build the model, the training data was subsetted to only include the columns with data that represented direct measurements.  Note that it is not necessary to process other data sets similarly since the column names were unchanged and no additional variables were constructed.
+```{r}
+ofInterest<-c("roll_belt", "pitch_belt", "yaw_belt",
+              "gyros_belt_x", "gyros_belt_y", "gyros_belt_z",
+              "accel_belt_x", "accel_belt_y", "accel_belt_z",
+              "magnet_belt_x", "magnet_belt_y", "magnet_belt_z",
+              "roll_arm", "pitch_arm", "yaw_arm",
+              "gyros_arm_x", "gyros_arm_y", "gyros_arm_z",
+              "accel_arm_x", "accel_arm_y", "accel_arm_z",
+              "magnet_arm_x", "magnet_arm_y", "magnet_arm_z",
+              "roll_dumbbell", "pitch_dumbbell", "yaw_dumbbell",
+              "gyros_dumbbell_x", "gyros_dumbbell_y", "gyros_dumbbell_z",
+              "accel_dumbbell_x", "accel_dumbbell_y", "accel_dumbbell_z",
+              "classe")
+RatTrain<-subset(RatTrain, select=ofInterest)
+```
+
+## Build Predictive Model
+Several classification / regression models were compared for performance.  The Conditional Inference Tree (ctree) was particularly bad.  The CART method (rpart), while better also performed poorly.  A Bagged CART method improved the accuracy but was not yet acceptable.  Finally the Random Forest (rf) method was tried with excellent results.  By adding bootstrapping Cross Validation, an accuracy of 98% was achieved.
+```{r}
+#RatModel<-train(classe~., RatTrain, method="ctree")
+#RatModel$results
+# Accuracy: 0.01 <- BAD!
+
+#RatModel_rpart<-train(classe~., RatTrain, method="rpart")
+#RatModel_rpart$results
+# Accuracy:0.42 <- bad
+
+#RatModel_treebag<-train(classe~., RatTrain, method="treebag")
+#RatModel_treebag$results
+#RatPredict_tbag<-predict(RatModel_treebag, RatValidate)
+#table(RatPredict_tbag, RatValidate$classe)
+#Accuracy:0.94 <-not bad
+
+RatModel_rf<-train(classe ~ ., RatTrain, 
+                   method="rf",
+                   trcontrol=trainControl(method = "boot") 
+                  ) 
+Rat_validate<-predict(RatModel_rf, newdata=RatValidate)
+#RatModel_rf$results
+#Accuracy: 0.95 with MTRY=5  <-best tested
+#RatPredict_rf<-predict(RatModel_rf, newdata=RatTrain)
+#table(RatPredict_rf, RatTrain$classe)
+#table(RatPredict_rf, RatValidate$classe)
+```
+
+##Estimate out of sample error
+The best method to estimate the out of sample error is against a test dataset.  To that end, the model was used to predict the values based on the Valdiate data that was carved out of the original training set.
+```{r}
+OOSE<- (1-(sum(Rat_validate==RatValidate$classe)/length(Rat_validate)))*100
+Rat_Output<-data.frame(ID=WhatRats$problem_id)
+Rat_Output$classe<-predict(RatModel_rf, newdata=WhatRats)
+write.csv(Rat_Output, file="MachineLearningOutput.txt")
+```
+
